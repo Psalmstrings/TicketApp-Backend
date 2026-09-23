@@ -36,7 +36,7 @@ const server = createServer(app);
 // ── Socket.IO ─────────────────────────────────────────────────────────────────
 const io = new Server(server, {
   cors: {
-    origin:  [CLIENT_URL, 'http://localhost:3000', 'http://localhost:5173'],
+    origin:  [CLIENT_URL, 'http://localhost:3000', 'http://localhost:5173', 'https://ticket-app-frontend.vercel.app'],
     methods: ['GET', 'POST'],
     credentials: true,
   },
