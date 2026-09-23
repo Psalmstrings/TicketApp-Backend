@@ -47,7 +47,7 @@ initSocket(io);
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, Postman) or from CLIENT_URL
-    const allowed = [CLIENT_URL, 'http://localhost:3000', 'http://localhost:5173'];
+    const allowed = [CLIENT_URL, 'http://localhost:3000', 'http://localhost:5173', 'https://ticket-app-frontend.vercel.app'];
     if (!origin || allowed.includes(origin)) {
       callback(null, true);
     } else {
