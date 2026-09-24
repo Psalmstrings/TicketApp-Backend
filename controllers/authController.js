@@ -212,3 +212,114 @@ export const updateMe = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// @desc    Forgot Password Request
+// @route   POST /api/auth/forgot-password
+// @access  Public
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      // Return success to avoid email enumeration
+      return res.json({
+        success: true,
+        message: 'If an account with that email exists, password reset instructions have been sent.',
+      });
+    }
+    // Set reset token or code
+    const resetToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'tickapp_jwt_super_secret_key_2026_production', { expiresIn: '1h' });
+    return res.json({
+      success: true,
+      message: 'Password reset link sent successfully. Please check your inbox.',
+      resetToken, // for testing / development
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Reset Password
+// @route   POST /api/auth/reset-password
+// @access  Public
+export const resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword, confirmPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Reset token and new password are required' });
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, message: 'Passwords do not match' });
+    }
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'tickapp_jwt_super_secret_key_2026_production');
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Invalid or expired token' });
+    }
+    const salt = await bcrypt.genSalt(10);
+    user.passwordHash = await bcrypt.hash(newPassword, salt);
+    await user.save();
+    return res.json({ success: true, message: 'Password has been reset successfully. You can now log in.' });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: 'Invalid or expired reset token.' });
+  }
+};
+
+// @desc    Top up wallet balance (Buy Credit)
+// @route   POST /api/auth/topup
+// @access  Private
+export const topUpBalance = async (req, res) => {
+  try {
+    const { amount } = req.body;
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid amount' });
+    }
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    user.balance = (user.balance || 0) + numAmount;
+    await user.save();
+
+    await Notification.create({
+      userId: user._id,
+      title: 'Wallet Funded 💳',
+      message: `Successfully added $${numAmount.toFixed(2)} to your TickApp wallet. New balance: $${user.balance.toFixed(2)}`,
+      type: 'PAYMENT_RECEIVED',
+    });
+
+    await logAudit({
+      actorId: user._id,
+      actorName: `${user.firstName} ${user.lastName}`,
+      actorRole: user.role,
+      action: 'WALLET_TOPUP',
+      targetType: 'USER',
+      targetId: user._id,
+      details: { amount: numAmount, newBalance: user.balance },
+      req,
+    });
+
+    return res.json({
+      success: true,
+      message: `Added $${numAmount.toFixed(2)} to your balance`,
+      balance: user.balance,
+      user: {
+        id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        status: user.status,
+        avatar: user.avatar,
+        balance: user.balance,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

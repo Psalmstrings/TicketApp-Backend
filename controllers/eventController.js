@@ -8,30 +8,93 @@ import { logAudit } from '../services/auditService.js';
 // @access  Public
 export const getEvents = async (req, res) => {
   try {
-    const { search, category, featured } = req.query;
+    const { search, category, city, date, featured, sort } = req.query;
     const query = { status: 'PUBLISHED' };
 
-    if (category && category !== 'All') {
-      query.category = category;
+    if (category && category !== 'All' && category !== 'all') {
+      // Map category labels if needed
+      let catPattern = category;
+      if (category.toLowerCase() === 'concerts') catPattern = 'Music|Concerts|Festival';
+      else if (category.toLowerCase() === 'arts & theater') catPattern = 'Arts|Theater|Comedy|Show';
+      query.category = { $regex: catPattern, $options: 'i' };
     }
 
     if (featured === 'true') {
       query.featured = true;
     }
 
-    if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { venue: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-      ];
+    if (city && city !== 'All Cities' && city !== 'All') {
+      const cityRegex = { $regex: city, $options: 'i' };
+      query.$or = [{ venue: cityRegex }, { address: cityRegex }];
     }
+
+    if (date) {
+      const now = new Date();
+      if (date === 'today') {
+        const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+        const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+        query.startDate = { $gte: startOfDay, $lte: endOfDay };
+      } else if (date === 'this_weekend') {
+        // upcoming weekend
+        const startOfWknd = new Date();
+        const day = startOfWknd.getDay();
+        const diffToFri = (5 - day + 7) % 7;
+        startOfWknd.setDate(startOfWknd.getDate() + diffToFri);
+        startOfWknd.setHours(0, 0, 0, 0);
+        const endOfWknd = new Date(startOfWknd);
+        endOfWknd.setDate(endOfWknd.getDate() + 2);
+        endOfWknd.setHours(23, 59, 59, 999);
+        query.startDate = { $gte: startOfWknd, $lte: endOfWknd };
+      } else if (date === 'this_month') {
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        query.startDate = { $gte: startOfMonth, $lte: endOfMonth };
+      }
+    }
+
+    if (search) {
+      const searchRegex = { $regex: search, $options: 'i' };
+      const searchClauses = [
+        { title: searchRegex },
+        { venue: searchRegex },
+        { address: searchRegex },
+        { description: searchRegex },
+        { category: searchRegex },
+      ];
+      if (query.$or) {
+        query.$and = [{ $or: query.$or }, { $or: searchClauses }];
+        delete query.$or;
+      } else {
+        query.$or = searchClauses;
+      }
+    }
+
+    let sortObj = { startDate: 1 };
+    if (sort === 'date_desc') sortObj = { startDate: -1 };
+    else if (sort === 'created_desc') sortObj = { createdAt: -1 };
 
     const events = await Event.find(query)
       .populate('organizerId', 'firstName lastName')
-      .sort({ startDate: 1 });
+      .sort(sortObj);
 
-    return res.json({ success: true, count: events.length, data: events });
+    // Attach ticketTypes and starting prices
+    const eventIds = events.map(e => e._id);
+    const allTicketTypes = await TicketType.find({ eventId: { $in: eventIds } });
+
+    const eventsWithDetails = events.map(ev => {
+      const types = allTicketTypes.filter(t => t.eventId.toString() === ev._id.toString());
+      const prices = types.map(t => t.price).filter(p => typeof p === 'number');
+      const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+      const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
+      return {
+        ...ev.toObject(),
+        ticketTypes: types,
+        minPrice,
+        maxPrice,
+      };
+    });
+
+    return res.json({ success: true, count: eventsWithDetails.length, data: eventsWithDetails });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

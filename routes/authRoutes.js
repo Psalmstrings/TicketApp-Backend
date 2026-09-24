@@ -1,5 +1,14 @@
 import express from 'express';
-import { register, login, logout, getMe, updateMe } from '../controllers/authController.js';
+import {
+  register,
+  login,
+  logout,
+  getMe,
+  updateMe,
+  forgotPassword,
+  resetPassword,
+  topUpBalance,
+} from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -18,5 +27,14 @@ router.get('/me', protect, getMe);
 
 // @route   PUT /api/auth/me
 router.put('/me', protect, updateMe);
+
+// @route   POST /api/auth/forgot-password
+router.post('/forgot-password', forgotPassword);
+
+// @route   POST /api/auth/reset-password
+router.post('/reset-password', resetPassword);
+
+// @route   POST /api/auth/topup
+router.post('/topup', protect, topUpBalance);
 
 export default router;
