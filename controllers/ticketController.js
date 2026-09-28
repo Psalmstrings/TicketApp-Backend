@@ -55,6 +55,35 @@ export const getTicketById = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized to view this ticket' });
     }
 
+    // Find all tickets belonging to this user for the same event
+    const allUserTickets = await Ticket.find({
+      eventId: ticket.eventId._id,
+      ownerId: ticket.ownerId._id,
+      status: { $in: ['SOLD', 'AVAILABLE', 'RESERVED', 'LISTED'] },
+    })
+      .populate('ticketTypeId')
+      .sort({ createdAt: 1, _id: 1 });
+
+    const allTicketsWithQR = await Promise.all(
+      allUserTickets.map(async (t, index) => {
+        let qr = '';
+        try {
+          qr = await generateQRCodeDataURL(t.qrToken);
+        } catch (e) {
+          qr = '';
+        }
+        const sectionDisplay = t.section === 'General' || t.section === 'GA'
+          ? `GA${index + 1}`
+          : t.section;
+
+        return {
+          ...t.toObject(),
+          sectionDisplay,
+          qrCodeImage: qr,
+        };
+      })
+    );
+
     // Generate fresh QR Code Data URL from signed token
     const qrCodeImage = await generateQRCodeDataURL(ticket.qrToken);
 
@@ -63,6 +92,7 @@ export const getTicketById = async (req, res) => {
       data: {
         ...ticket.toObject(),
         qrCodeImage,
+        allEventTickets: allTicketsWithQR.length > 0 ? allTicketsWithQR : [{ ...ticket.toObject(), sectionDisplay: 'GA1', qrCodeImage }],
       },
     });
   } catch (error) {
